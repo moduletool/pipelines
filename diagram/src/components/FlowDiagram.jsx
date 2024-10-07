@@ -10,30 +10,43 @@ import ReactFlow, {
 } from 'react-flow-renderer';
 import axios from 'axios';
 
-const CustomNode = ({ data }) => {
+const CustomNode = ({ id, data }) => {
+  const onInputChange = (event, index) => {
+    event.stopPropagation();
+    data.onInputChange(id, index, event.target.value);
+  };
+
+  const onAddInput = (event) => {
+    event.stopPropagation();
+    data.onAddInput(id);
+  };
+
+  const onDelete = (event) => {
+    event.stopPropagation();
+    data.onDelete(id);
+  };
+
   return (
-    <div style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '5px' }}>
+    <div style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '5px', background: 'white' }}>
       <div>{data.label}</div>
       {data.inputs.map((input, index) => (
         <div key={`input-${index}`}>
           <Handle type="target" position="top" id={`input-${index}`} style={{top: 10 + index * 10}} />
           <input
             value={input}
-            onChange={(e) => data.onInputChange(index, e.target.value)}
+            onChange={(e) => onInputChange(e, index)}
+            onClick={(e) => e.stopPropagation()}
             style={{marginBottom: '5px'}}
           />
         </div>
       ))}
-      <button onClick={data.onAddInput}>+</button>
+      <button onClick={onAddInput}>+</button>
       <div>
         {data.outputs.map((output, index) => (
           <Handle key={`output-${index}`} type="source" position="bottom" id={`output-${index}`} style={{bottom: 10 + index * 10}} />
         ))}
       </div>
-      <button onClick={(event) => {
-        event.stopPropagation();
-        data.onDelete();
-      }}>X</button>
+      <button onClick={onDelete}>X</button>
     </div>
   );
 };
@@ -67,40 +80,41 @@ const FlowDiagram = () => {
     event.dataTransfer.dropEffect = 'move';
   };
 
-  const onDrop = (event) => {
-    event.preventDefault();
-    const functionId = event.dataTransfer.getData('application/reactflow');
-    const position = { x: event.clientX, y: event.clientY };
-    const newNode = {
-      id: `${Date.now()}`,
+  const createNode = (functionId, position) => {
+    const id = `${Date.now()}`;
+    return {
+      id,
       type: 'custom',
       position,
       data: {
         label: functions.find(f => f.id === parseInt(functionId)).name,
         inputs: [''],
         outputs: [''],
-        onInputChange: (index, value) => {
+        onInputChange: (nodeId, index, value) => {
           setNodes(nds =>
             nds.map(node =>
-              node.id === newNode.id
+              node.id === nodeId
                 ? { ...node, data: { ...node.data, inputs: node.data.inputs.map((input, i) => i === index ? value : input) } }
                 : node
             )
           );
         },
-        onAddInput: () => {
+        onAddInput: (nodeId) => {
           setNodes(nds =>
             nds.map(node =>
-              node.id === newNode.id
+              node.id === nodeId
                 ? { ...node, data: { ...node.data, inputs: [...node.data.inputs, ''] } }
                 : node
             )
           );
         },
-        onDelete: () => deleteNode(newNode.id)
+        onDelete: deleteNode
       }
     };
+  };
 
+  const addNodeToFlow = (functionId, position) => {
+    const newNode = createNode(functionId, position);
     setNodes((nds) => {
       const updatedNodes = nds.concat(newNode);
 
@@ -120,6 +134,18 @@ const FlowDiagram = () => {
 
       return updatedNodes;
     });
+  };
+
+  const onDrop = (event) => {
+    event.preventDefault();
+    const functionId = event.dataTransfer.getData('application/reactflow');
+    const position = { x: event.clientX - 250, y: event.clientY };
+    addNodeToFlow(functionId, position);
+  };
+
+  const onFunctionClick = (functionId) => {
+    const position = { x: 100, y: (nodes.length * 100) + 100 };
+    addNodeToFlow(functionId, position);
   };
 
   const deleteNode = useCallback((nodeId) => {
@@ -153,7 +179,8 @@ const FlowDiagram = () => {
             key={func.id}
             draggable
             onDragStart={(event) => event.dataTransfer.setData('application/reactflow', func.id)}
-            style={{ margin: '5px', padding: '5px', border: '1px solid black', cursor: 'move' }}
+            onClick={() => onFunctionClick(func.id)}
+            style={{ margin: '5px', padding: '5px', border: '1px solid black', cursor: 'pointer' }}
           >
             {func.name}
           </div>

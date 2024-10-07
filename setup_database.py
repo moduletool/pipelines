@@ -1,40 +1,23 @@
 import sqlite3
+import os
 
 def setup_database():
-    conn = sqlite3.connect('flow_diagram.db')
+    db_name = 'flow_diagram.db'
+    
+    # Remove existing database if it exists
+    if os.path.exists(db_name):
+        os.remove(db_name)
+        print(f"Existing database '{db_name}' removed.")
+
+    conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
 
+    # Read schema from file
+    with open('schema.sql', 'r') as schema_file:
+        schema_script = schema_file.read()
+
     # Create tables
-    cursor.executescript('''
-    CREATE TABLE functions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        description TEXT,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL
-    );
-
-    CREATE TABLE flows (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL
-    );
-
-    CREATE TABLE objects (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        input TEXT,
-        output TEXT
-    );
-
-    CREATE TABLE commands (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        flow_id INTEGER,
-        command_id INTEGER,
-        function_id INTEGER,
-        object_id INTEGER,
-        FOREIGN KEY (flow_id) REFERENCES flows(id),
-        FOREIGN KEY (function_id) REFERENCES functions(id),
-        FOREIGN KEY (object_id) REFERENCES objects(id)
-    );
-    ''')
+    cursor.executescript(schema_script)
 
     # Insert sample functions
     sample_functions = [

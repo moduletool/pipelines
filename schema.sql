@@ -1,23 +1,23 @@
 CREATE TABLE functions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY ,
     description TEXT,
     name TEXT NOT NULL,
     type TEXT NOT NULL
 );
 
 CREATE TABLE flows (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY ,
     name TEXT NOT NULL
 );
 
 CREATE TABLE objects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY ,
     input TEXT,
     output TEXT
 );
 
 CREATE TABLE commands (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY ,
     flow_id INTEGER,
     function_id INTEGER,
     FOREIGN KEY (flow_id) REFERENCES flows(id),
@@ -25,7 +25,7 @@ CREATE TABLE commands (
 );
 
 CREATE TABLE command_objects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY ,
     command_id INTEGER,
     input TEXT,
     output TEXT,
