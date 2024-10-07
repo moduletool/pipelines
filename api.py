@@ -25,137 +25,162 @@ def get_flows():
     conn.close()
     return jsonify([dict(flow) for flow in flows])
 
-@app.route('/api/command_objects/<int:flow_id>', methods=['GET'])
-def get_command_objects_for_flow(flow_id):
+@app.route('/api/flow_data/<int:flow_id>', methods=['GET'])
+def get_flow_data_for_flow(flow_id):
     conn = get_db_connection()
-    command_objects = conn.execute('''
-        SELECT co.id, func.name as function_name, co.input, co.output
-        FROM command_objects co
-        JOIN commands c ON co.command_id = c.id
-        JOIN functions func ON c.function_id = func.id
-        WHERE c.flow_id = ?
-        ORDER BY c.id ASC
+    flow_data = conn.execute('''
+        SELECT fd.id, func.name as function_name, fd.value, fd.type
+        FROM flow_data fd
+        JOIN flow_function ff ON fd.flow_id = ff.id
+        JOIN functions func ON ff.function_id = func.id
+        WHERE ff.flow_id = ?
+        ORDER BY ff.id ASC
     ''', (flow_id,)).fetchall()
     conn.close()
-    return jsonify([dict(obj) for obj in command_objects])
+    return jsonify([dict(obj) for obj in flow_data])
 
 @app.route('/api/flow/<int:flow_id>', methods=['GET'])
 def get_flow(flow_id):
     conn = get_db_connection()
     flow = conn.execute('SELECT * FROM flows WHERE id = ?', (flow_id,)).fetchone()
-    commands = conn.execute('''
-        SELECT c.id, f.name as function_name, 
-               GROUP_CONCAT(CASE WHEN co.input IS NOT NULL THEN co.input ELSE '' END) as inputs,
-               GROUP_CONCAT(CASE WHEN co.output IS NOT NULL THEN co.output ELSE '' END) as outputs
-        FROM commands c
-        JOIN functions f ON c.function_id = f.id
-        LEFT JOIN command_objects co ON c.id = co.command_id
-        WHERE c.flow_id = ?
-        GROUP BY c.id
-        ORDER BY c.id ASC
+    flow_function = conn.execute('''
+        SELECT ff.id, f.name as function_name, 
+               GROUP_CONCAT(CASE WHEN fd.value IS NOT NULL THEN fd.value ELSE '' END) as valuess,
+               GROUP_CONCAT(CASE WHEN fd.type IS NOT NULL THEN fd.type ELSE '' END) as types
+        FROM flow_function ff
+        JOIN functions f ON ff.function_id = f.id
+        LEFT JOIN flow_data fd ON ff.id = fd.flow_id
+        WHERE ff.flow_id = ?
+        GROUP BY ff.id
+        ORDER BY ff.id ASC
     ''', (flow_id,)).fetchall()
     conn.close()
     
     return jsonify({
         'id': flow['id'],
         'name': flow['name'],
-        'commands': [dict(cmd) for cmd in commands]
+        'flow_function': [dict(cmd) for cmd in flow_function]
     })
 
-@app.route('/api/all_command_objects', methods=['GET'])
-def get_all_command_objects():
+@app.route('/api/all_flow_data', methods=['GET'])
+def get_all_flow_data():
     conn = get_db_connection()
-    command_objects = conn.execute('''
-        SELECT co.id, f.name as flow_name, func.name as function_name, co.input, co.output
-        FROM command_objects co
-        JOIN commands c ON co.command_id = c.id
-        JOIN flows f ON c.flow_id = f.id
-        JOIN functions func ON c.function_id = func.id
-        ORDER BY f.id DESC, c.id ASC
+    flow_data = conn.execute('''
+        SELECT fd.id, f.name as flow_name, func.name as function_name, fd.value, fd.type
+        FROM flow_data fd
+        JOIN flow_function ff ON fd.flow_id = ff.id
+        JOIN flows f ON ff.flow_id = f.id
+        JOIN functions func ON ff.function_id = func.id
+        ORDER BY f.id DESC, ff.id ASC
     ''').fetchall()
     conn.close()
-    return jsonify([dict(obj) for obj in command_objects])
+    return jsonify([dict(obj) for obj in flow_data])
+
 
 @app.route('/api/run_flow', methods=['POST'])
 def run_flow():
-    flow_data = request.json
-    nodes = flow_data['nodes']
-    edges = flow_data['edges']
-    flow_name = flow_data['flowName']
+    try:
+        flow_data = request.json
+        nodes = flow_data['nodes']
+        edges = flow_data['edges']
+        flow_name = flow_data['flowName']
 
-    # Save the flow
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('INSERT INTO flows (name) VALUES (?)', (flow_name,))
-    flow_id = cursor.lastrowid
-
-    # Save commands and command objects
-    for node in nodes:
-        function = conn.execute('SELECT id FROM functions WHERE name = ?', (node['data']['label'],)).fetchone()
-        if function:
-            cursor.execute('INSERT INTO commands (flow_id, function_id) VALUES (?, ?)', 
-                           (flow_id, function['id']))
-            command_id = cursor.lastrowid
-            for input_value in node['data']['inputs']:
-                cursor.execute('INSERT INTO command_objects (command_id, input) VALUES (?, ?)',
-                               (command_id, input_value))
-
-    conn.commit()
-
-    # Process the flow
-    result = process_flow(nodes, edges)
-
-    # Save output as command objects
-    for node_id, output in result.items():
-        command = conn.execute('SELECT id FROM commands WHERE flow_id = ? AND id = ?', (flow_id, node_id)).fetchone()
-        if command:
-            cursor.execute('UPDATE command_objects SET output = ? WHERE command_id = ?', 
-                           (str(output), command['id']))
-    conn.commit()
-    conn.close()
-
-    @app.route('/api/flow/<int:flow_id>', methods=['DELETE'])
-    def delete_flow(flow_id):
+        # Save the flow
         conn = get_db_connection()
         cursor = conn.cursor()
+        cursor.execute('INSERT INTO flows (name) VALUES (?)', (flow_name,))
+        flow_id = cursor.lastrowid
 
-        try:
-            # Usuń powiązane command_objects
-            cursor.execute(
-                'DELETE FROM command_objects WHERE command_id IN (SELECT id FROM commands WHERE flow_id = ?)',
-                (flow_id,))
+        # Save flow_function and flow objects
+        for node in nodes:
+            function = conn.execute('SELECT id FROM functions WHERE name = ?', (node['data']['label'],)).fetchone()
+            if function:
+                cursor.execute('INSERT INTO flow_function (flow_id, function_id) VALUES (?, ?)',
+                               (flow_id, function['id']))
+                flow_id = cursor.lastrowid
+                type = 'input'
+                for value in node['data']['inputs']:
+                    cursor.execute('INSERT INTO flow_data (flow_id, value, type) VALUES (?, ?, ?)',
+                                   (flow_id, value, type))
 
-            # Usuń powiązane commands
-            cursor.execute('DELETE FROM commands WHERE flow_id = ?', (flow_id,))
+        conn.commit()
 
-            # Usuń flow
-            cursor.execute('DELETE FROM flows WHERE id = ?', (flow_id,))
+        # Process the flow
+        result = process_flow(nodes, edges)
+        print(result)
 
-            conn.commit()
-            return jsonify({"message": "Flow deleted successfully"}), 200
-        except Exception as e:
+        # Save output as flow objects
+        for node_id, output in result.items():
+            print(node_id, output)
+            # flow = conn.execute('SELECT id FROM flow_function WHERE flow_id = ? AND id = ?', (flow_id, node_id)).fetchone()
+            # if flow:
+            type = 'output'
+            value=str(output)
+            cursor.execute('INSERT INTO flow_data (flow_id, value, type) VALUES (?, ?, ?)',
+                           # (flow['id'], value, type))
+                           (flow_id, value, type))
+                # cursor.execute('UPDATE flow_data SET output = ? WHERE flow_id = ?',
+                #                (str(output), flow['id']))
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "message": "Flow executed and saved successfully",
+            "result": result,
+            "flow_id": flow_id
+        })
+    except Exception as e:
+        # If an error occurs, rollback the transaction and return an error message
+        if 'conn' in locals():
             conn.rollback()
-            return jsonify({"error": str(e)}), 500
-        finally:
             conn.close()
+        return jsonify({"error": str(e)}), 500
 
-    return jsonify({"message": "Flow executed and saved successfully", "result": result})
+
+
+@app.route('/api/flow/<int:flow_id>', methods=['DELETE'])
+def delete_flow(flow_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Usuń powiązane flow_data
+        cursor.execute('DELETE FROM flow_data WHERE flow_id IN (SELECT id FROM flow_function WHERE flow_id = ?)', (flow_id,))
+
+        # Usuń powiązane flow_function
+        cursor.execute('DELETE FROM flow_function WHERE flow_id = ?', (flow_id,))
+
+        # Usuń flow
+        cursor.execute('DELETE FROM flows WHERE id = ?', (flow_id,))
+
+        conn.commit()
+        return jsonify({"message": "Flow deleted successfully"}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
 
 def process_flow(nodes, edges):
     result = {}
     for node in nodes:
         function_name = node['data']['label']
         inputs = node['data']['inputs']
-        if function_name == 'add':
-            result[node['id']] = add(float(inputs[0]), float(inputs[1]))
-        elif function_name == 'subtract':
-            result[node['id']] = subtract(float(inputs[0]), float(inputs[1]))
-        elif function_name == 'multiply':
-            result[node['id']] = multiply(float(inputs[0]), float(inputs[1]))
-        elif function_name == 'divide':
-            result[node['id']] = divide(float(inputs[0]), float(inputs[1]))
-        elif function_name == 'evaluate_expression':
-            result[node['id']] = evaluate_expression(inputs[0])
+        try:
+            if function_name == 'add':
+                result[node['id']] = add(float(inputs[0]), float(inputs[1]))
+            elif function_name == 'subtract':
+                result[node['id']] = subtract(float(inputs[0]), float(inputs[1]))
+            elif function_name == 'multiply':
+                result[node['id']] = multiply(float(inputs[0]), float(inputs[1]))
+            elif function_name == 'divide':
+                result[node['id']] = divide(float(inputs[0]), float(inputs[1]))
+            elif function_name == 'evaluate_expression':
+                result[node['id']] = evaluate_expression(inputs[0])
+            else:
+                result[node['id']] = f"Unknown function: {function_name}"
+        except Exception as e:
+            result[node['id']] = f"Error processing node: {str(e)}"
     return result
 
 if __name__ == '__main__':

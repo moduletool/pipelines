@@ -67,7 +67,7 @@ const FlowDiagram = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [functions, setFunctions] = useState([]);
-  const [commandObjects, setCommandObjects] = useState([]);
+  const [flowFunctionObjects, setFlowFunctionObjects] = useState([]);
   const [flowName, setFlowName] = useState('');
   const [flows, setFlows] = useState([]);
   const [selectedFlow, setSelectedFlow] = useState('');
@@ -79,13 +79,13 @@ const FlowDiagram = () => {
 
   useEffect(() => {
     if (selectedFlow) {
-      fetchCommandObjects(selectedFlow);
+      fetchFlowFunctionObjects(selectedFlow);
       loadFlow(selectedFlow);
     } else {
       setNodes([]);
       setEdges([]);
       setFlowName('');
-      setCommandObjects([]);
+      setFlowFunctionObjects([]);
     }
   }, [selectedFlow]);
 
@@ -99,9 +99,9 @@ const FlowDiagram = () => {
     setFlows(response.data);
   };
 
-  const fetchCommandObjects = async (flowId) => {
-    const response = await axios.get(`http://localhost:5000/api/command_objects/${flowId}`);
-    setCommandObjects(response.data);
+  const fetchFlowFunctionObjects = async (flowId) => {
+    const response = await axios.get(`http://localhost:5000/api/flow_data/${flowId}`);
+    setFlowFunctionObjects(response.data);
   };
 
 
@@ -110,14 +110,14 @@ const FlowDiagram = () => {
     const flowData = response.data;
     setFlowName(flowData.name);
 
-    const newNodes = flowData.commands.map((command, index) => ({
-      id: command.id.toString(),
+    const newNodes = flowData.flow_function.map((flow_function, index) => ({
+      id: flow_function.id.toString(),
       type: 'custom',
       position: { x: 100, y: index * 150 },
       data: {
-        label: command.function_name,
-        inputs: command.inputs ? command.inputs.split(',') : [''],
-        outputs: command.outputs ? command.outputs.split(',') : [''],
+        label: flow_function.function_name,
+        inputs: flow_function.valuess ? flow_function.valuess.split(',') : [''],
+        outputs: flow_function.types ? flow_function.types.split(',') : [''],
         onInputChange: (nodeId, index, value) => {
           setNodes(nds =>
             nds.map(node =>
@@ -144,10 +144,10 @@ const FlowDiagram = () => {
       }
     }));
 
-    const newEdges = flowData.commands.slice(0, -1).map((command, index) => ({
-      id: `e${command.id}-${flowData.commands[index + 1].id}`,
-      source: command.id.toString(),
-      target: flowData.commands[index + 1].id.toString(),
+    const newEdges = flowData.flow_function.slice(0, -1).map((flow_function, index) => ({
+      id: `e${flow_function.id}-${flowData.flow_function[index + 1].id}`,
+      source: flow_function.id.toString(),
+      target: flowData.flow_function[index + 1].id.toString(),
       sourceHandle: 'output-0',
       targetHandle: 'input-0'
     }));
@@ -258,27 +258,29 @@ const FlowDiagram = () => {
       // Odśwież listę flows
       await fetchFlows();
 
-      // Jeśli jest wybrany flow, odśwież jego command objects
+      // Jeśli jest wybrany flow, odśwież jego flow_function objects
       if (selectedFlow) {
-        await fetchCommandObjects(selectedFlow);
+        await fetchFlowFunctionObjects(selectedFlow);
       } else {
         // Jeśli nie ma wybranego flow, wybierz nowo utworzony flow
         const newFlow = response.data.flow_id;
         setSelectedFlow(newFlow);
-        await fetchCommandObjects(newFlow);
+        await fetchFlowFunctionObjects(newFlow);
       }
 
-      // Odśwież listę wszystkich command objects
-      await fetchAllCommandObjects();
+      // Odśwież listę wszystkich flow_function objects
+      // await fetchAllFlowFunctionObjects();
+      await fetchFlowFunctionObjects(response.data.flow_id);
+
     } catch (error) {
       console.error('Error running flow:', error);
     }
   };
 
-  // Dodaj nową funkcję do pobierania wszystkich command objects
-  const fetchAllCommandObjects = async () => {
-    const response = await axios.get('http://localhost:5000/api/all_command_objects');
-    setCommandObjects(response.data);
+  // Dodaj nową funkcję do pobierania wszystkich flow_function objects
+  const fetchAllFlowFunctionObjects = async () => {
+    const response = await axios.get('http://localhost:5000/api/all_flow_data');
+    setFlowFunctionObjects(response.data);
   };
 
   const deleteFlow = async () => {
@@ -291,7 +293,7 @@ const FlowDiagram = () => {
       setEdges([]);
       setFlowName('');
       fetchFlows(); // Odśwież listę flows po usunięciu
-      setCommandObjects([]); // Wyczyść command objects
+      setFlowFunctionObjects([]); // Wyczyść flow_function objects
     } catch (error) {
       console.error('Error deleting flow:', error);
     }
@@ -365,21 +367,21 @@ const FlowDiagram = () => {
             Delete Flow
           </button>
         </div>
-        <h3>Command Objects</h3>
+        <h3>FlowFunction Objects</h3>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
               <th style={tableHeaderStyle}>Function</th>
-              <th style={tableHeaderStyle}>Input</th>
-              <th style={tableHeaderStyle}>Output</th>
+              <th style={tableHeaderStyle}>Value</th>
+              <th style={tableHeaderStyle}>Type</th>
             </tr>
           </thead>
           <tbody>
-            {commandObjects.map((obj) => (
+            {flowFunctionObjects.map((obj) => (
               <tr key={obj.id}>
                 <td style={tableCellStyle}>{obj.function_name}</td>
-                <td style={tableCellStyle}>{obj.input}</td>
-                <td style={tableCellStyle}>{obj.output}</td>
+                <td style={tableCellStyle}>{obj.value}</td>
+                <td style={tableCellStyle}>{obj.type}</td>
               </tr>
             ))}
           </tbody>
