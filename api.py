@@ -18,8 +18,52 @@ def get_functions():
     conn.close()
     return jsonify([dict(func) for func in functions])
 
-@app.route('/api/command_objects', methods=['GET'])
-def get_command_objects():
+@app.route('/api/flows', methods=['GET'])
+def get_flows():
+    conn = get_db_connection()
+    flows = conn.execute('SELECT * FROM flows').fetchall()
+    conn.close()
+    return jsonify([dict(flow) for flow in flows])
+
+@app.route('/api/command_objects/<int:flow_id>', methods=['GET'])
+def get_command_objects_for_flow(flow_id):
+    conn = get_db_connection()
+    command_objects = conn.execute('''
+        SELECT co.id, func.name as function_name, co.input, co.output
+        FROM command_objects co
+        JOIN commands c ON co.command_id = c.id
+        JOIN functions func ON c.function_id = func.id
+        WHERE c.flow_id = ?
+        ORDER BY c.id ASC
+    ''', (flow_id,)).fetchall()
+    conn.close()
+    return jsonify([dict(obj) for obj in command_objects])
+
+@app.route('/api/flow/<int:flow_id>', methods=['GET'])
+def get_flow(flow_id):
+    conn = get_db_connection()
+    flow = conn.execute('SELECT * FROM flows WHERE id = ?', (flow_id,)).fetchone()
+    commands = conn.execute('''
+        SELECT c.id, f.name as function_name, 
+               GROUP_CONCAT(CASE WHEN co.input IS NOT NULL THEN co.input ELSE '' END) as inputs,
+               GROUP_CONCAT(CASE WHEN co.output IS NOT NULL THEN co.output ELSE '' END) as outputs
+        FROM commands c
+        JOIN functions f ON c.function_id = f.id
+        LEFT JOIN command_objects co ON c.id = co.command_id
+        WHERE c.flow_id = ?
+        GROUP BY c.id
+        ORDER BY c.id ASC
+    ''', (flow_id,)).fetchall()
+    conn.close()
+    
+    return jsonify({
+        'id': flow['id'],
+        'name': flow['name'],
+        'commands': [dict(cmd) for cmd in commands]
+    })
+
+@app.route('/api/all_command_objects', methods=['GET'])
+def get_all_command_objects():
     conn = get_db_connection()
     command_objects = conn.execute('''
         SELECT co.id, f.name as flow_name, func.name as function_name, co.input, co.output
@@ -69,6 +113,31 @@ def run_flow():
                            (str(output), command['id']))
     conn.commit()
     conn.close()
+
+    @app.route('/api/flow/<int:flow_id>', methods=['DELETE'])
+    def delete_flow(flow_id):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Usuń powiązane command_objects
+            cursor.execute(
+                'DELETE FROM command_objects WHERE command_id IN (SELECT id FROM commands WHERE flow_id = ?)',
+                (flow_id,))
+
+            # Usuń powiązane commands
+            cursor.execute('DELETE FROM commands WHERE flow_id = ?', (flow_id,))
+
+            # Usuń flow
+            cursor.execute('DELETE FROM flows WHERE id = ?', (flow_id,))
+
+            conn.commit()
+            return jsonify({"message": "Flow deleted successfully"}), 200
+        except Exception as e:
+            conn.rollback()
+            return jsonify({"error": str(e)}), 500
+        finally:
+            conn.close()
 
     return jsonify({"message": "Flow executed and saved successfully", "result": result})
 
