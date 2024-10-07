@@ -2,17 +2,9 @@ import os
 import sys
 from dotenv import load_dotenv
 from cloudflare import Cloudflare  # Replace this with the actual library if it's different
-import json
-import requests
-import csv
-from flatten_zones import *
-from from_file import *
 from get_all_zones import get_all_zones
-from get_zone_id import *
-from remove_zone import *
-from save_to_file import *
-from json_to_csv import *
-from list_zones import list_zones
+from get_zone_id import get_zone_id
+from remove_zone import remove_zone
 
 
 
