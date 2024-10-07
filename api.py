@@ -18,12 +18,19 @@ def get_functions():
     conn.close()
     return jsonify([dict(func) for func in functions])
 
-@app.route('/api/objects', methods=['GET'])
-def get_objects():
+@app.route('/api/command_objects', methods=['GET'])
+def get_command_objects():
     conn = get_db_connection()
-    objects = conn.execute('SELECT * FROM objects').fetchall()
+    command_objects = conn.execute('''
+        SELECT co.id, f.name as flow_name, func.name as function_name, co.input, co.output
+        FROM command_objects co
+        JOIN commands c ON co.command_id = c.id
+        JOIN flows f ON c.flow_id = f.id
+        JOIN functions func ON c.function_id = func.id
+        ORDER BY f.id DESC, c.id ASC
+    ''').fetchall()
     conn.close()
-    return jsonify([dict(obj) for obj in objects])
+    return jsonify([dict(obj) for obj in command_objects])
 
 @app.route('/api/run_flow', methods=['POST'])
 def run_flow():
@@ -40,22 +47,26 @@ def run_flow():
 
     # Save commands and command objects
     for node in nodes:
-        cursor.execute('INSERT INTO commands (flow_id, function_id) VALUES (?, ?)', 
-                       (flow_id, node['data']['label']))
-        command_id = cursor.lastrowid
-        for input_value in node['data']['inputs']:
-            cursor.execute('INSERT INTO command_objects (command_id, input) VALUES (?, ?)',
-                           (command_id, input_value))
+        function = conn.execute('SELECT id FROM functions WHERE name = ?', (node['data']['label'],)).fetchone()
+        if function:
+            cursor.execute('INSERT INTO commands (flow_id, function_id) VALUES (?, ?)', 
+                           (flow_id, function['id']))
+            command_id = cursor.lastrowid
+            for input_value in node['data']['inputs']:
+                cursor.execute('INSERT INTO command_objects (command_id, input) VALUES (?, ?)',
+                               (command_id, input_value))
 
     conn.commit()
 
     # Process the flow
     result = process_flow(nodes, edges)
 
-    # Save output as objects
+    # Save output as command objects
     for node_id, output in result.items():
-        cursor.execute('UPDATE command_objects SET output = ? WHERE command_id = ?', 
-                       (output, node_id))
+        command = conn.execute('SELECT id FROM commands WHERE flow_id = ? AND id = ?', (flow_id, node_id)).fetchone()
+        if command:
+            cursor.execute('UPDATE command_objects SET output = ? WHERE command_id = ?', 
+                           (str(output), command['id']))
     conn.commit()
     conn.close()
 

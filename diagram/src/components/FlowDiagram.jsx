@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactFlow, {
   ReactFlowProvider,
   Controls,
@@ -57,10 +57,11 @@ const FlowDiagram = () => {
   const [functions, setFunctions] = useState([]);
   const [objects, setObjects] = useState([]);
   const [flowName, setFlowName] = useState('');
+  const [commandObjects, setCommandObjects] = useState([]);
 
   useEffect(() => {
     fetchFunctions();
-    fetchObjects();
+    fetchCommandObjects();
   }, []);
 
   const fetchFunctions = async () => {
@@ -68,20 +69,22 @@ const FlowDiagram = () => {
     setFunctions(response.data);
   };
 
-  const fetchObjects = async () => {
-    const response = await axios.get('http://localhost:5000/api/objects');
-    setObjects(response.data);
+  const fetchCommandObjects = async () => {
+    const response = await axios.get('http://localhost:5000/api/command_objects');
+    setCommandObjects(response.data);
   };
 
-  const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
+  const onConnect = useCallback((params) => {
+    setEdges((eds) => addEdge({ ...params, id: `e${params.source}-${params.target}` }, eds));
+  }, [setEdges]);
 
   const onDragOver = (event) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   };
 
-  const createNode = (functionId, position) => {
-    const id = `${Date.now()}`;
+  const createNode = useCallback((functionId, position) => {
+    const id = `node_${Date.now()}`;
     return {
       id,
       type: 'custom',
@@ -111,9 +114,9 @@ const FlowDiagram = () => {
         onDelete: deleteNode
       }
     };
-  };
+  }, [functions, setNodes]);
 
-  const addNodeToFlow = (functionId, position) => {
+  const addNodeToFlow = useCallback((functionId, position) => {
     const newNode = createNode(functionId, position);
     setNodes((nds) => {
       const updatedNodes = nds.concat(newNode);
@@ -134,19 +137,19 @@ const FlowDiagram = () => {
 
       return updatedNodes;
     });
-  };
+  }, [createNode, setNodes, setEdges]);
 
-  const onDrop = (event) => {
+  const onDrop = useCallback((event) => {
     event.preventDefault();
     const functionId = event.dataTransfer.getData('application/reactflow');
     const position = { x: event.clientX - 250, y: event.clientY };
     addNodeToFlow(functionId, position);
-  };
+  }, [addNodeToFlow]);
 
-  const onFunctionClick = (functionId) => {
+  const onFunctionClick = useCallback((functionId) => {
     const position = { x: 100, y: (nodes.length * 100) + 100 };
     addNodeToFlow(functionId, position);
-  };
+  }, [nodes.length, addNodeToFlow]);
 
   const deleteNode = useCallback((nodeId) => {
     setNodes((nds) => nds.filter((node) => node.id !== nodeId));
@@ -164,78 +167,96 @@ const FlowDiagram = () => {
         flowName
       });
       console.log('Flow result:', response.data);
-      await fetchObjects();
+      await fetchCommandObjects();
     } catch (error) {
       console.error('Error running flow:', error);
     }
   };
 
+  const nodeTypes = useMemo(() => ({ custom: CustomNode }), []);
+
   return (
-    <div style={{ height: '100vh', display: 'flex' }}>
-      <div style={{ width: '200px', padding: '10px' }}>
-        <h3>Functions</h3>
-        {functions.map((func) => (
-          <div
-            key={func.id}
-            draggable
-            onDragStart={(event) => event.dataTransfer.setData('application/reactflow', func.id)}
-            onClick={() => onFunctionClick(func.id)}
-            style={{ margin: '5px', padding: '5px', border: '1px solid black', cursor: 'pointer' }}
-          >
-            {func.name}
+      <div style={{height: '100vh', display: 'flex'}}>
+        <div style={{width: '200px', padding: '10px'}}>
+          <h3>Functions</h3>
+          {functions.map((func) => (
+              <div
+                  key={func.id}
+                  draggable
+                  onDragStart={(event) => event.dataTransfer.setData('application/reactflow', func.id)}
+                  onClick={() => onFunctionClick(func.id)}
+                  style={{margin: '5px', padding: '5px', border: '1px solid black', cursor: 'pointer'}}
+              >
+                {func.name}
+              </div>
+          ))}
+        </div>
+        <div style={{flex: 1, display: 'flex', flexDirection: 'column'}}>
+          <div style={{display: 'flex', alignItems: 'center', padding: '10px'}}>
+            <input
+                type="text"
+                value={flowName}
+                onChange={(e) => setFlowName(e.target.value)}
+                placeholder="Enter flow name"
+                style={{flex: 1, marginRight: '10px', padding: '5px'}}
+            />
+            <button onClick={runFlow} style={{padding: '5px 10px'}}>Run Flow</button>
           </div>
-        ))}
-      </div>
-      <div style={{ flex: 1 }}>
-        <input
-          type="text"
-          value={flowName}
-          onChange={(e) => setFlowName(e.target.value)}
-          placeholder="Enter flow name"
-          style={{ width: '100%', padding: '5px' }}
-        />
-        <ReactFlowProvider>
-          <div style={{ height: 'calc(100% - 40px)' }}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-              nodeTypes={{ custom: CustomNode }}
-            >
-              <Controls />
-              <Background />
-            </ReactFlow>
-          </div>
-        </ReactFlowProvider>
-        <button onClick={runFlow} style={{ width: '100%', padding: '10px' }}>Run Flow</button>
-      </div>
-      <div style={{ width: '200px', padding: '10px' }}>
-        <h3>Objects</h3>
-        <table>
-          <thead>
+          <ReactFlowProvider>
+            <div style={{flex: 1}}>
+              <ReactFlow
+                  nodes={nodes}
+                  edges={edges}
+                  onNodesChange={onNodesChange}
+                  onEdgesChange={onEdgesChange}
+                  onConnect={onConnect}
+                  onDrop={onDrop}
+                  onDragOver={onDragOver}
+                  nodeTypes={nodeTypes}
+              >
+                <Controls/>
+                <Background/>
+              </ReactFlow>
+            </div>
+          </ReactFlowProvider>
+        </div>
+        <div style={{width: '300px', padding: '10px', overflowY: 'auto'}}>
+          <h3>Command Objects</h3>
+          <table style={{width: '100%', borderCollapse: 'collapse'}}>
+            <thead>
             <tr>
-              <th>ID</th>
-              <th>Input</th>
-              <th>Output</th>
+              <th style={tableHeaderStyle}>Flow</th>
+              <th style={tableHeaderStyle}>Function</th>
+              <th style={tableHeaderStyle}>Input</th>
+              <th style={tableHeaderStyle}>Output</th>
             </tr>
-          </thead>
-          <tbody>
-            {objects.map((obj) => (
-              <tr key={obj.id}>
-                <td>{obj.id}</td>
-                <td>{obj.input}</td>
-                <td>{obj.output}</td>
-              </tr>
+            </thead>
+            <tbody>
+            {commandObjects.map((obj) => (
+                <tr key={obj.id}>
+                  <td style={tableCellStyle}>{obj.flow_name}</td>
+                  <td style={tableCellStyle}>{obj.function_name}</td>
+                  <td style={tableCellStyle}>{obj.input}</td>
+                  <td style={tableCellStyle}>{obj.output}</td>
+                </tr>
             ))}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
   );
+};
+
+const tableHeaderStyle = {
+  backgroundColor: '#f2f2f2',
+  padding: '8px',
+  textAlign: 'left',
+  borderBottom: '1px solid #ddd'
+};
+
+const tableCellStyle = {
+  padding: '8px',
+  borderBottom: '1px solid #ddd'
 };
 
 export default FlowDiagram;
