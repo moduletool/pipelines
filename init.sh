@@ -1,2 +1,2 @@
 #!/bin/bash
-pip install python-dotenv cloudflare
+pip install python-dotenv cloudflare requests
