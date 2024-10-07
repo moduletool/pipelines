@@ -1,13 +1,42 @@
-import React, { useState, useEffect } from 'react';
-import ReactFlow, { 
-  ReactFlowProvider, 
-  Controls, 
-  Background, 
-  useNodesState, 
+import React, { useState, useEffect, useCallback } from 'react';
+import ReactFlow, {
+  ReactFlowProvider,
+  Controls,
+  Background,
+  useNodesState,
   useEdgesState,
-  addEdge
+  addEdge,
+  Handle
 } from 'react-flow-renderer';
 import axios from 'axios';
+
+const CustomNode = ({ data }) => {
+  return (
+    <div style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '5px' }}>
+      <div>{data.label}</div>
+      {data.inputs.map((input, index) => (
+        <div key={`input-${index}`}>
+          <Handle type="target" position="top" id={`input-${index}`} style={{top: 10 + index * 10}} />
+          <input
+            value={input}
+            onChange={(e) => data.onInputChange(index, e.target.value)}
+            style={{marginBottom: '5px'}}
+          />
+        </div>
+      ))}
+      <button onClick={data.onAddInput}>+</button>
+      <div>
+        {data.outputs.map((output, index) => (
+          <Handle key={`output-${index}`} type="source" position="bottom" id={`output-${index}`} style={{bottom: 10 + index * 10}} />
+        ))}
+      </div>
+      <button onClick={(event) => {
+        event.stopPropagation();
+        data.onDelete();
+      }}>X</button>
+    </div>
+  );
+};
 
 const FlowDiagram = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -17,22 +46,21 @@ const FlowDiagram = () => {
   const [flowName, setFlowName] = useState('');
 
   useEffect(() => {
-    // Fetch functions and objects from the backend
     fetchFunctions();
     fetchObjects();
   }, []);
 
   const fetchFunctions = async () => {
-    const response = await axios.get('/api/functions');
+    const response = await axios.get('http://localhost:5000/api/functions');
     setFunctions(response.data);
   };
 
   const fetchObjects = async () => {
-    const response = await axios.get('/api/objects');
+    const response = await axios.get('http://localhost:5000/api/objects');
     setObjects(response.data);
   };
 
-  const onConnect = (params) => setEdges((eds) => addEdge(params, eds));
+  const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
 
   const onDragOver = (event) => {
     event.preventDefault();
@@ -45,19 +73,75 @@ const FlowDiagram = () => {
     const position = { x: event.clientX, y: event.clientY };
     const newNode = {
       id: `${Date.now()}`,
-      type: 'default',
+      type: 'custom',
       position,
-      data: { label: functions.find(f => f.id === parseInt(functionId)).name }
+      data: {
+        label: functions.find(f => f.id === parseInt(functionId)).name,
+        inputs: [''],
+        outputs: [''],
+        onInputChange: (index, value) => {
+          setNodes(nds =>
+            nds.map(node =>
+              node.id === newNode.id
+                ? { ...node, data: { ...node.data, inputs: node.data.inputs.map((input, i) => i === index ? value : input) } }
+                : node
+            )
+          );
+        },
+        onAddInput: () => {
+          setNodes(nds =>
+            nds.map(node =>
+              node.id === newNode.id
+                ? { ...node, data: { ...node.data, inputs: [...node.data.inputs, ''] } }
+                : node
+            )
+          );
+        },
+        onDelete: () => deleteNode(newNode.id)
+      }
     };
-    setNodes((nds) => nds.concat(newNode));
+
+    setNodes((nds) => {
+      const updatedNodes = nds.concat(newNode);
+
+      // Find the last node (excluding the new one)
+      const lastNode = nds[nds.length - 1];
+
+      if (lastNode) {
+        // Connect the new node to the last node
+        setEdges((eds) => eds.concat({
+          id: `e${lastNode.id}-${newNode.id}`,
+          source: lastNode.id,
+          target: newNode.id,
+          sourceHandle: 'output-0',
+          targetHandle: 'input-0'
+        }));
+      }
+
+      return updatedNodes;
+    });
   };
 
+  const deleteNode = useCallback((nodeId) => {
+    setNodes((nds) => nds.filter((node) => node.id !== nodeId));
+    setEdges((eds) => eds.filter(
+      (edge) => edge.source !== nodeId && edge.target !== nodeId
+    ));
+  }, [setNodes, setEdges]);
+
   const runFlow = async () => {
-    // Implement the logic to run the flow
-    // This should send the flow data to the backend for processing
     console.log('Running flow:', { nodes, edges, flowName });
-    // After running, fetch updated objects
-    await fetchObjects();
+    try {
+      const response = await axios.post('http://localhost:5000/api/run_flow', {
+        nodes,
+        edges,
+        flowName
+      });
+      console.log('Flow result:', response.data);
+      await fetchObjects();
+    } catch (error) {
+      console.error('Error running flow:', error);
+    }
   };
 
   return (
@@ -93,6 +177,7 @@ const FlowDiagram = () => {
               onConnect={onConnect}
               onDrop={onDrop}
               onDragOver={onDragOver}
+              nodeTypes={{ custom: CustomNode }}
             >
               <Controls />
               <Background />

@@ -31,7 +31,6 @@ def run_flow():
     nodes = flow_data['nodes']
     edges = flow_data['edges']
     flow_name = flow_data['flowName']
-    input_data = flow_data['inputData']
 
     # Save the flow
     conn = get_db_connection()
@@ -39,41 +38,45 @@ def run_flow():
     cursor.execute('INSERT INTO flows (name) VALUES (?)', (flow_name,))
     flow_id = cursor.lastrowid
 
-    # Save commands (nodes and edges)
+    # Save commands and command objects
     for node in nodes:
         cursor.execute('INSERT INTO commands (flow_id, function_id) VALUES (?, ?)', 
                        (flow_id, node['data']['label']))
+        command_id = cursor.lastrowid
+        for input_value in node['data']['inputs']:
+            cursor.execute('INSERT INTO command_objects (command_id, input) VALUES (?, ?)',
+                           (command_id, input_value))
 
     conn.commit()
 
     # Process the flow
-    result = process_flow(nodes, edges, input_data)
+    result = process_flow(nodes, edges)
 
-    # Save input and output as objects
-    cursor.execute('INSERT INTO objects (input, output) VALUES (?, ?)', 
-                   (input_data, result))
+    # Save output as objects
+    for node_id, output in result.items():
+        cursor.execute('UPDATE command_objects SET output = ? WHERE command_id = ?', 
+                       (output, node_id))
     conn.commit()
     conn.close()
 
     return jsonify({"message": "Flow executed and saved successfully", "result": result})
 
-def process_flow(nodes, edges, input_data):
-    # This is a simplified flow processing function
-    # In a real scenario, you'd need to handle more complex flows
-    result = input_data
+def process_flow(nodes, edges):
+    result = {}
     for node in nodes:
         function_name = node['data']['label']
+        inputs = node['data']['inputs']
         if function_name == 'add':
-            result = add(float(result), 10)  # Just an example, add 10 to the result
+            result[node['id']] = add(float(inputs[0]), float(inputs[1]))
         elif function_name == 'subtract':
-            result = subtract(float(result), 5)  # Subtract 5 from the result
+            result[node['id']] = subtract(float(inputs[0]), float(inputs[1]))
         elif function_name == 'multiply':
-            result = multiply(float(result), 2)  # Multiply the result by 2
+            result[node['id']] = multiply(float(inputs[0]), float(inputs[1]))
         elif function_name == 'divide':
-            result = divide(float(result), 2)  # Divide the result by 2
+            result[node['id']] = divide(float(inputs[0]), float(inputs[1]))
         elif function_name == 'evaluate_expression':
-            result = evaluate_expression(result)
-    return str(result)
+            result[node['id']] = evaluate_expression(inputs[0])
+    return result
 
 if __name__ == '__main__':
     app.run(debug=True)
