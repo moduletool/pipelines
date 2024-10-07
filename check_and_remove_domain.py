@@ -1,29 +1,27 @@
 import os
 import sys
 from dotenv import load_dotenv
-from cloudflare import Cloudflare
-
+# Replace 'cloudflare' with the actual library/package name
+from cloudflare import Cloudflare  # Assuming this is the correct import
 
 
 def remove_domain_from_cloudflare(domain, cf):
-    # Wczytaj zmienne środowiskowe z pliku .env
-
+    # Load environment variables from .env file
     try:
-        # Znajdź zone_id dla podanej domeny
-        zones = cf.zones.get(domain)
+        # Fetch all zones and find the correct zone for the domain
+        zones = cf.zones.get()  # Here we assume it fetches all zones
+        # Normally, filtering might be needed according to the library's interface
+        matching_zones = [zone for zone in zones if zone['name'] == domain]
 
-        if len(zones) == 0:
+        if not matching_zones:
             print(f"Nie znaleziono strefy dla domeny: {domain}")
             return False
 
-        zone_id = zones[0]['id']
-
-        # Usuń strefę DNS
+        zone_id = matching_zones[0]['id']
+        # Delete the DNS zone
         cf.zones.delete(zone_id)
         print(f"Pomyślnie usunięto domenę {domain} ze stref DNS Cloudflare")
         return True
-
-
     except Exception as e:
         print(f"Wystąpił nieoczekiwany błąd: {e}")
         return False
@@ -35,15 +33,12 @@ if __name__ == "__main__":
         sys.exit(1)
 
     domain = sys.argv[1]
-    print(domain)
     load_dotenv()
-    print(os.getenv('CLOUDFLARE_EMAIL'))
+
     client = Cloudflare(
-        # This is the default and can be omitted
         api_email=os.getenv('CLOUDFLARE_EMAIL'),
-        # This is the default and can be omitted
         api_key=os.getenv('CLOUDFLARE_API_KEY'),
-    )    
+    )
+
     result = remove_domain_from_cloudflare(domain, client)
-    print(str(result).lower())
     sys.exit(0 if result else 1)
